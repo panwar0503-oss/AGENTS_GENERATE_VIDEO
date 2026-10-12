@@ -1,0 +1,6 @@
+{
+  "name": "TopicToVideo",
+  "description": "AI video generator that transforms topics into monetization-safe short and long videos with auto-synced animated captions, voiceover, and stock visuals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
