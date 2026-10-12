@@ -20,6 +20,9 @@ import {
   Scene,
 } from './types/video';
 import { STOCK_MEDIA_LIBRARY } from './data/royaltyFreeLibrary';
+import { preloadImage } from './utils/videoCanvasPlayer';
+import { PRESENTER_CHARACTERS } from './data/presenterCharacters';
+import { preloadProjectAudio } from './utils/audioSynthesizer';
 
 export default function App() {
   const [currentStep, setCurrentStep] = useState(1);
@@ -36,6 +39,7 @@ export default function App() {
 
   const [project, setProject] = useState<VideoProject | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingVisuals, setIsGeneratingVisuals] = useState(false);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
 
   // Modals
@@ -193,12 +197,33 @@ export default function App() {
         };
       }
 
-      // Pair scenes with stock media assets
+      // Pair scenes with script-matched visuals and emotions
       const pairedScenes: Scene[] = (data.scenes || []).map((s: any, idx: number) => {
-        const matchedStock =
-          STOCK_MEDIA_LIBRARY.find((item) =>
-            item.tags.some((tag) => s.searchKeywords?.toLowerCase().includes(tag))
-          ) || STOCK_MEDIA_LIBRARY[idx % STOCK_MEDIA_LIBRARY.length];
+        const vp = (s.visualPrompt || '').toLowerCase();
+        const sk = (s.searchKeywords || '').toLowerCase();
+
+        // Check if visual prompt directly maps to procedural canvas or stock
+        let initialUrl = 'gen:aurora';
+        let initialType: 'canvas_art' | 'image' = 'canvas_art';
+
+        if (vp.includes('neural') || vp.includes('ai') || vp.includes('code') || sk.includes('tech')) {
+          initialUrl = 'gen:neural';
+        } else if (vp.includes('candlestick') || vp.includes('finance') || vp.includes('stock') || sk.includes('market')) {
+          initialUrl = 'gen:candlestick';
+        } else if (vp.includes('nebula') || vp.includes('space') || vp.includes('cosmos') || sk.includes('star')) {
+          initialUrl = 'gen:nebula';
+        } else if (vp.includes('grid') || vp.includes('cyber') || vp.includes('matrix')) {
+          initialUrl = 'gen:cyber_grid';
+        } else if (vp.includes('synapse') || vp.includes('brain') || vp.includes('neuro')) {
+          initialUrl = 'gen:synapse';
+        } else {
+          const matchedStock =
+            STOCK_MEDIA_LIBRARY.find((item) =>
+              item.tags.some((tag) => s.searchKeywords?.toLowerCase().includes(tag))
+            ) || STOCK_MEDIA_LIBRARY[idx % STOCK_MEDIA_LIBRARY.length];
+          initialUrl = matchedStock.url;
+          initialType = matchedStock.type === 'generative' ? 'canvas_art' : 'image';
+        }
 
         const sceneEmotion =
           s.emotion ||
@@ -217,13 +242,13 @@ export default function App() {
           sceneNumber: idx + 1,
           title: s.title || `Scene ${idx + 1}`,
           narrationText: s.narrationText || '',
-          visualPrompt: s.visualPrompt || 'Cinematic documentary visual',
+          visualPrompt: s.visualPrompt || `Cinematic documentary visual illustrating ${s.title || topic}`,
           searchKeywords: s.searchKeywords || 'technology future',
-          mediaType: matchedStock.type === 'generative' ? 'canvas_art' : 'image',
-          mediaUrl: matchedStock.url,
+          mediaType: initialType,
+          mediaUrl: initialUrl,
           mediaCredit: {
-            source: matchedStock.source,
-            license: matchedStock.license,
+            source: initialUrl.startsWith('gen:') ? 'Procedural Vector Canvas' : 'Royalty-Free Stock',
+            license: '100% Commercial Safe Royalty-Free (Zero Copyright Claim Risk)',
             commercialSafe: true,
           },
           captionKeywords: s.captionKeywords || [],
@@ -233,14 +258,25 @@ export default function App() {
         };
       });
 
-      // Match presenter persona and voice to the chosen tone
-      const defaultHostMap = {
-        educational: { charId: 'char_marcus', voice: 'Charon' as const },
-        motivational: { charId: 'char_jordan', voice: 'Puck' as const },
-        storytelling: { charId: 'char_maya', voice: 'Kore' as const },
-        'news-style': { charId: 'char_sophia', voice: 'Zephyr' as const },
+      // Match presenter persona and voice dynamically
+      let hostChoice: { charId: string; voice: VideoProject['voiceConfig']['voiceName'] } = {
+        charId: 'char_marcus',
+        voice: 'Charon',
       };
-      const hostChoice = defaultHostMap[tone] || { charId: 'char_marcus', voice: 'Charon' as const };
+      if (data.recommendedPresenter?.characterId) {
+        hostChoice = {
+          charId: data.recommendedPresenter.characterId,
+          voice: (data.recommendedPresenter.voiceMatch as any) || 'Charon',
+        };
+      } else {
+        const defaultHostMap: Record<string, { charId: string; voice: VideoProject['voiceConfig']['voiceName'] }> = {
+          educational: { charId: 'char_marcus', voice: 'Charon' },
+          motivational: { charId: 'char_jordan', voice: 'Puck' },
+          storytelling: { charId: 'char_maya', voice: 'Kore' },
+          'news-style': { charId: 'char_sophia', voice: 'Zephyr' },
+        };
+        hostChoice = defaultHostMap[tone] || { charId: 'char_marcus', voice: 'Charon' };
+      }
 
       const newProject: VideoProject = {
         id: `proj_${Date.now()}`,
@@ -329,10 +365,67 @@ export default function App() {
 
       setProject(newProject);
       handleStepChange(2);
+
+      // Preload host character studio portraits & emotion states into cache
+      const hostData = PRESENTER_CHARACTERS.find((c) => c.id === hostChoice.charId);
+      if (hostData) {
+        preloadImage(hostData.avatarUrl);
+        Object.values(hostData.emotionalExpressions || {}).forEach((url) => preloadImage(url));
+      }
+      preloadProjectAudio(newProject.scenes, hostChoice.voice);
+
+      // Automatically generate scene backgrounds based on the script and visual direction
+      setTimeout(() => {
+        autoGenerateBackgrounds(newProject);
+      }, 50);
     } catch (err: any) {
       console.warn('Notice: Script processed with default safety layer:', err?.message);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const autoGenerateBackgrounds = async (proj: VideoProject) => {
+    setIsGeneratingVisuals(true);
+    try {
+      const updatedScenes = [...proj.scenes];
+      for (let i = 0; i < updatedScenes.length; i++) {
+        const sc = updatedScenes[i];
+        try {
+          const res = await fetch('/api/generate-scene-visual', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: sc.visualPrompt,
+              topic: proj.topic,
+              sceneNumber: sc.sceneNumber,
+              narrationText: sc.narrationText,
+              aspectRatio: proj.aspectRatio,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.imageUrl) {
+              updatedScenes[i] = {
+                ...sc,
+                mediaUrl: data.imageUrl,
+                mediaType: data.imageUrl.startsWith('gen:') ? 'canvas_art' : 'image',
+                mediaCredit: {
+                  source: data.source === 'ai_generated' ? 'Gemini 3.1 AI Generation' : 'Procedural Canvas Art',
+                  license: data.license || '100% Commercial Safe Royalty-Free (Zero Copyright Claim Risk)',
+                  commercialSafe: true,
+                },
+              };
+              preloadImage(data.imageUrl);
+              setProject((curr) => (curr ? { ...curr, scenes: [...updatedScenes] } : curr));
+            }
+          }
+        } catch (e) {
+          console.warn('Auto visual scene generation notice:', e);
+        }
+      }
+    } finally {
+      setIsGeneratingVisuals(false);
     }
   };
 
@@ -418,6 +511,8 @@ export default function App() {
             setProject={setProject}
             onNext={() => handleStepChange(4)}
             onBack={() => handleStepChange(2)}
+            isGeneratingVisuals={isGeneratingVisuals}
+            onTriggerAutoGenerateVisuals={() => autoGenerateBackgrounds(project)}
           />
         )}
 

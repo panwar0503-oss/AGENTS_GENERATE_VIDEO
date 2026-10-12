@@ -29,7 +29,7 @@ export async function renderAndExportVideo(
   onProgress(10, 'Generating clean studio voiceovers with matched scene emotions...');
   const sceneVoiceBuffers: AudioBuffer[] = [];
   for (const scene of project.scenes) {
-    const buf = await getSceneAudioBuffer(
+    const { buffer: buf } = await getSceneAudioBuffer(
       scene.narrationText,
       project.voiceConfig.voiceName,
       scene.emotion || 'explaining',

@@ -146,20 +146,64 @@ export function generateProceduralSpeechBuffer(
   return buffer;
 }
 
-// Pre-fetch or retrieve cached scene audio buffer (Guarantees valid AudioBuffer return)
+// Global Audio Analyser and Speaking State Tracker for real-time mouth movement and visualizer sync
+let globalAnalyser: AnalyserNode | null = null;
+let currentSpeakingStartTime = 0;
+let currentSpeakingDuration = 0;
+let isSpeakingActive = false;
+
+export function getAudioAnalyser(): AnalyserNode | null {
+  return globalAnalyser;
+}
+
+/**
+ * Returns real-time normalized volume level (0.0 to 1.0)
+ * Drives mouth lip-sync, speaking equalizer bars, and dynamic emotion halo in real time
+ */
+export function getLiveAudioVolume(): number {
+  if (globalAnalyser && isSpeakingActive) {
+    const dataArray = new Uint8Array(globalAnalyser.frequencyBinCount);
+    globalAnalyser.getByteTimeDomainData(dataArray);
+    let sumSquares = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+      const norm = (dataArray[i] - 128) / 128;
+      sumSquares += norm * norm;
+    }
+    const rms = Math.sqrt(sumSquares / dataArray.length);
+    return Math.min(1.0, Math.max(0, rms * 4.2));
+  }
+
+  // If speaking via clean browser SpeechSynthesis, generate dynamic syllabic envelope
+  if (isSpeakingActive) {
+    const elapsed = (Date.now() - currentSpeakingStartTime) / 1000;
+    if (elapsed < currentSpeakingDuration) {
+      const syllablePulse = (Math.sin(elapsed * 15) * 0.5 + 0.5) * (Math.sin(elapsed * 7) * 0.3 + 0.7);
+      const isWordBreak = Math.sin(elapsed * 3.5) < -0.65;
+      return isWordBreak ? 0.05 : Math.max(0.12, syllablePulse * 0.85);
+    }
+  }
+
+  return 0;
+}
+
+export function isCharacterSpeaking(): boolean {
+  return isSpeakingActive;
+}
+
+// Pre-fetch or retrieve cached scene audio buffer
 export async function getSceneAudioBuffer(
   text: string,
   voiceName: string = 'Zephyr',
   emotion: string = 'explaining',
   speed: number = 1.0
-): Promise<AudioBuffer> {
+): Promise<{ buffer: AudioBuffer; isRealTts: boolean }> {
   const cleanSnippet = text.slice(0, 80).replace(/\s+/g, '_');
   const cacheKey = `${voiceName}:${emotion}:${cleanSnippet}:${speed}`;
   if (audioBufferCache.has(cacheKey)) {
-    return audioBufferCache.get(cacheKey)!;
+    return { buffer: audioBufferCache.get(cacheKey)!, isRealTts: true };
   }
 
-  // 1. Try server Gemini TTS endpoint
+  // 1. Try server Gemini TTS endpoint for crystal clear studio speech
   try {
     const response = await fetch('/api/generate-tts', {
       method: 'POST',
@@ -172,17 +216,17 @@ export async function getSceneAudioBuffer(
       if (data.audioBase64) {
         const buffer = await base64ToAudioBuffer(data.audioBase64);
         audioBufferCache.set(cacheKey, buffer);
-        return buffer;
+        return { buffer, isRealTts: true };
       }
     }
   } catch (err) {
-    console.warn('Backend TTS request note, using clean procedural vocal synthesis:', err);
+    console.warn('Backend TTS request note, using clean vocal synthesis:', err);
   }
 
-  // 2. High-fidelity procedural speech buffer fallback (Guarantees loud, clean, audible voice)
+  // 2. High-fidelity procedural speech buffer fallback
   const syntheticBuffer = generateProceduralSpeechBuffer(text, voiceName, emotion, speed);
   audioBufferCache.set(cacheKey, syntheticBuffer);
-  return syntheticBuffer;
+  return { buffer: syntheticBuffer, isRealTts: false };
 }
 
 // Preload all scenes' voiceover clips in parallel
@@ -197,7 +241,7 @@ export async function preloadProjectAudio(
   await Promise.allSettled(promises);
 }
 
-// Play Voiceover Narration via Gemini TTS or clean procedural buffer + browser speech sync
+// Play Voiceover Narration cleanly without double-speaking or echo
 export async function synthesizeVoice(
   text: string,
   voiceName: string = 'Zephyr',
@@ -207,7 +251,7 @@ export async function synthesizeVoice(
   const words = text.split(/\s+/).length;
   const durationEstimate = Math.max(2, words / (2.6 * speed));
 
-  const audioBuffer = await getSceneAudioBuffer(text, voiceName, emotion, speed);
+  const { buffer: audioBuffer, isRealTts } = await getSceneAudioBuffer(text, voiceName, emotion, speed);
   let activeSource: AudioBufferSourceNode | null = null;
   let isStopped = false;
 
@@ -215,33 +259,92 @@ export async function synthesizeVoice(
     durationEstimate: audioBuffer ? audioBuffer.duration : durationEstimate,
     play: async () => {
       isStopped = false;
-      const ctx = getAudioContext();
+      isSpeakingActive = true;
+      currentSpeakingStartTime = Date.now();
+      currentSpeakingDuration = audioBuffer ? audioBuffer.duration : durationEstimate;
 
-      // Optional: coordinate browser Web Speech API for natural human speech words
+      const ctx = getAudioContext();
+      if (!globalAnalyser) {
+        globalAnalyser = ctx.createAnalyser();
+        globalAnalyser.fftSize = 256;
+        globalAnalyser.smoothingTimeConstant = 0.5;
+      }
+
+      // PATH A: Real Gemini TTS studio audio buffer available -> play directly through Web Audio
+      if (isRealTts && audioBuffer) {
+        if (activeSource) {
+          try { activeSource.stop(); } catch {}
+        }
+        activeSource = ctx.createBufferSource();
+        activeSource.buffer = audioBuffer;
+        activeSource.playbackRate.value = speed;
+
+        const gainNode = ctx.createGain();
+        gainNode.gain.setValueAtTime(0.95, ctx.currentTime);
+
+        activeSource.connect(gainNode);
+        gainNode.connect(globalAnalyser);
+        globalAnalyser.connect(ctx.destination);
+        activeSource.start();
+
+        return new Promise((resolve) => {
+          if (activeSource) {
+            activeSource.onended = () => {
+              isSpeakingActive = false;
+              resolve();
+            };
+          } else {
+            isSpeakingActive = false;
+            resolve();
+          }
+        });
+      }
+
+      // PATH B: Fallback -> Use clean browser Web Speech API (with emotion pitch & speed)
       if ('speechSynthesis' in window) {
         try {
           window.speechSynthesis.cancel();
           const utterance = new SpeechSynthesisUtterance(text);
           utterance.rate = speed;
           utterance.pitch =
+            emotion === 'shocked' ? 1.2 :
+            emotion === 'intrigued' ? 1.1 :
+            emotion === 'thoughtful' ? 0.92 :
             voiceName === 'Kore' ? 1.15 :
             voiceName === 'Charon' ? 0.88 :
-            voiceName === 'Puck' ? 1.1 : 1.0;
+            voiceName === 'Puck' ? 1.12 : 1.0;
 
           const voices = window.speechSynthesis.getVoices();
           if (voices.length > 0) {
             const preferred = voices.find(
               (v) =>
                 v.lang.startsWith('en') &&
-                (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel'))
+                (v.name.includes('Natural') ||
+                 v.name.includes('Google') ||
+                 v.name.includes('Samantha') ||
+                 v.name.includes('Daniel') ||
+                 v.name.includes('Arthur'))
             );
             if (preferred) utterance.voice = preferred;
           }
-          window.speechSynthesis.speak(utterance);
-        } catch {}
+
+          return new Promise((resolve) => {
+            utterance.onend = () => {
+              isSpeakingActive = false;
+              resolve();
+            };
+            utterance.onerror = () => {
+              isSpeakingActive = false;
+              resolve();
+            };
+            window.speechSynthesis.speak(utterance);
+          });
+        } catch {
+          // If speech synthesis fails, continue to path C
+        }
       }
 
-      // Play audio buffer through Web Audio destination
+      // PATH C: Play procedural synthesized formant buffer
       if (audioBuffer) {
         if (activeSource) {
           try { activeSource.stop(); } catch {}
@@ -251,26 +354,35 @@ export async function synthesizeVoice(
         activeSource.playbackRate.value = speed;
 
         const gainNode = ctx.createGain();
-        gainNode.gain.setValueAtTime(0.9, ctx.currentTime);
+        gainNode.gain.setValueAtTime(0.85, ctx.currentTime);
         activeSource.connect(gainNode);
-        gainNode.connect(ctx.destination);
+        gainNode.connect(globalAnalyser);
+        globalAnalyser.connect(ctx.destination);
         activeSource.start();
 
         return new Promise((resolve) => {
           if (activeSource) {
-            activeSource.onended = () => resolve();
+            activeSource.onended = () => {
+              isSpeakingActive = false;
+              resolve();
+            };
           } else {
+            isSpeakingActive = false;
             resolve();
           }
         });
       }
 
       return new Promise((resolve) => {
-        setTimeout(resolve, durationEstimate * 1000);
+        setTimeout(() => {
+          isSpeakingActive = false;
+          resolve();
+        }, durationEstimate * 1000);
       });
     },
     stop: () => {
       isStopped = true;
+      isSpeakingActive = false;
       if (activeSource) {
         try { activeSource.stop(); } catch {}
         activeSource = null;

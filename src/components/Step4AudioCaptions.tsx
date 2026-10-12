@@ -82,7 +82,58 @@ export const Step4AudioCaptions: React.FC<Step4AudioCaptionsProps> = ({
     );
   };
 
-  const handleTestVoice = async (voiceName: VoiceConfig['voiceName']) => {
+  const [isMatchingHost, setIsMatchingHost] = useState(false);
+  const [hostMatchReason, setHostMatchReason] = useState<string | null>(null);
+
+  const handleAutoMatchHost = async () => {
+    setIsMatchingHost(true);
+    try {
+      const res = await fetch('/api/generate-character-persona', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: project.topic,
+          tone: project.tone,
+          platform: project.platform,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.characterId) {
+          setProject((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              voiceConfig: {
+                ...prev.voiceConfig,
+                voiceName: data.voiceMatch || prev.voiceConfig.voiceName,
+              },
+              presenterConfig: {
+                ...(prev.presenterConfig || {
+                  position: 'bottom_right',
+                  showSpeakingWave: true,
+                  mode: 'pip_corner',
+                }),
+                enabled: true,
+                characterId: data.characterId,
+              },
+            };
+          });
+          setHostMatchReason(data.deliveryNotes || `Matched for optimal delivery on "${project.topic}"`);
+        }
+      }
+    } catch (e) {
+      console.warn('Auto match host note:', e);
+    } finally {
+      setIsMatchingHost(false);
+    }
+  };
+
+  const handleTestVoice = async (
+    voiceName: VoiceConfig['voiceName'],
+    emotion: string = 'explaining',
+    samplePhrase?: string
+  ) => {
     if (activeVoiceStopper) {
       activeVoiceStopper();
       setActiveVoiceStopper(null);
@@ -92,8 +143,8 @@ export const Step4AudioCaptions: React.FC<Step4AudioCaptionsProps> = ({
 
     setIsPlayingVoiceTest(true);
     const testSample =
-      project.hook || 'Welcome to this breakdown. Here is what you need to know.';
-    const controller = await synthesizeVoice(testSample, voiceName, project.voiceConfig.speed);
+      samplePhrase || project.hook || 'Welcome to this breakdown. Here is what you need to know.';
+    const controller = await synthesizeVoice(testSample, voiceName, project.voiceConfig.speed, emotion);
 
     setActiveVoiceStopper(() => controller.stop);
     await controller.play();
@@ -265,37 +316,57 @@ export const Step4AudioCaptions: React.FC<Step4AudioCaptionsProps> = ({
             </div>
           </div>
 
-          {/* Enable / Disable Toggle */}
-          <button
-            type="button"
-            onClick={() => {
-              const currentEnabled = project.presenterConfig?.enabled ?? true;
-              setProject((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      presenterConfig: {
-                        ...(prev.presenterConfig || {
-                          characterId: 'char_marcus',
-                          mode: 'pip_corner',
-                          position: 'bottom_right',
-                          showSpeakingWave: true,
-                        }),
-                        enabled: !currentEnabled,
-                      },
-                    }
-                  : prev
-              );
-            }}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0 ${
-              project.presenterConfig?.enabled ?? true
-                ? 'bg-indigo-600 text-white'
-                : 'bg-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            {project.presenterConfig?.enabled ?? true ? 'Host Active' : '+ Enable Host'}
-          </button>
+          {/* Host Controls */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={isMatchingHost}
+              onClick={handleAutoMatchHost}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-700 text-xs font-semibold transition-colors shrink-0"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+              <span>{isMatchingHost ? 'Matching...' : 'Auto-Match to Topic'}</span>
+            </button>
+
+            {/* Enable / Disable Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                const currentEnabled = project.presenterConfig?.enabled ?? true;
+                setProject((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        presenterConfig: {
+                          ...(prev.presenterConfig || {
+                            characterId: 'char_marcus',
+                            mode: 'pip_corner',
+                            position: 'bottom_right',
+                            showSpeakingWave: true,
+                          }),
+                          enabled: !currentEnabled,
+                        },
+                      }
+                    : prev
+                );
+              }}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors shrink-0 ${
+                project.presenterConfig?.enabled ?? true
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              {project.presenterConfig?.enabled ?? true ? 'Host Active' : '+ Enable Host'}
+            </button>
+          </div>
         </div>
+
+        {hostMatchReason && (
+          <div className="p-3 rounded-xl bg-indigo-950/40 border border-indigo-800/40 text-xs text-indigo-300 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span><strong>AI Recommendation:</strong> {hostMatchReason}</span>
+          </div>
+        )}
 
         {(project.presenterConfig?.enabled ?? true) && (
           <div className="space-y-4 pt-1">
@@ -423,7 +494,7 @@ export const Step4AudioCaptions: React.FC<Step4AudioCaptionsProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              handleTestVoice(activeChar.voiceMatch);
+                              handleTestVoice(activeChar.voiceMatch, item.id, item.phrase);
                             }}
                             className="mt-1 w-full py-1 px-1.5 rounded bg-slate-800 hover:bg-slate-750 text-[10px] font-semibold text-indigo-300 hover:text-white transition-colors flex items-center justify-center gap-1"
                           >

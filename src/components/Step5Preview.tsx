@@ -17,7 +17,9 @@ import {
   CheckCircle,
   Sliders,
   User,
-  Mic
+  Mic,
+  Video,
+  Compass,
 } from 'lucide-react';
 
 interface Step5PreviewProps {
@@ -451,7 +453,43 @@ export const Step5Preview: React.FC<Step5PreviewProps> = ({
               </button>
             </div>
 
-            <div className="text-xs space-y-1 text-slate-400 pt-1">
+            <div className="text-xs space-y-2 text-slate-400 pt-1">
+              <div className="flex items-center justify-between bg-slate-950 p-2 rounded-lg border border-slate-800">
+                <div className="flex items-center gap-1.5 text-cyan-300 font-semibold">
+                  <Compass className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Documentary Camera Motion:</span>
+                </div>
+                <select
+                  value={
+                    project.scenes[activeSceneIndex]?.motionType ||
+                    (activeSceneIndex % 5 === 1 ? 'ken_burns_zoom_in' :
+                     activeSceneIndex % 5 === 2 ? 'pan_left' :
+                     activeSceneIndex % 5 === 3 ? 'tilt_up' :
+                     activeSceneIndex % 5 === 4 ? 'pan_right' :
+                     'orbital_drift')
+                  }
+                  onChange={(e) => {
+                    const newMotion = e.target.value as any;
+                    setProject((prev) => {
+                      if (!prev) return prev;
+                      const updated = prev.scenes.map((s, idx) =>
+                        idx === activeSceneIndex ? { ...s, motionType: newMotion } : s
+                      );
+                      return { ...prev, scenes: updated };
+                    });
+                  }}
+                  className="bg-slate-900 border border-slate-700 text-cyan-300 rounded px-2 py-0.5 text-[11px] font-medium focus:outline-none focus:border-cyan-500 cursor-pointer"
+                >
+                  <option value="ken_burns_zoom_in">Ken Burns: Push-In Zoom</option>
+                  <option value="ken_burns_zoom_out">Ken Burns: Pull-Back Reveal</option>
+                  <option value="pan_left">Documentary Pan Left</option>
+                  <option value="pan_right">Documentary Pan Right</option>
+                  <option value="tilt_up">Pedestal Tilt Up</option>
+                  <option value="tilt_down">Pedestal Tilt Down</option>
+                  <option value="orbital_drift">Organic Handheld Drift</option>
+                </select>
+              </div>
+
               <div>
                 <strong className="text-slate-300">Visual Cue:</strong>{' '}
                 {project.scenes[activeSceneIndex]?.visualPrompt}

@@ -1,6 +1,7 @@
 import { VideoProject, Scene, CaptionConfig } from '../types/video';
 import { calculateSceneWordTimings, groupIntoPhrases, TimedPhrase } from './captionGenerator';
 import { PRESENTER_CHARACTERS } from '../data/presenterCharacters';
+import { getLiveAudioVolume, isCharacterSpeaking } from './audioSynthesizer';
 
 // Cache loaded images
 const imageCache = new Map<string, HTMLImageElement>();
@@ -135,6 +136,63 @@ function renderGenerativeVisual(
       ctx.arc(sx, sy, sRadius, 0, Math.PI * 2);
       ctx.fill();
     }
+  } else if (type === 'gen:cyber_grid') {
+    // Cyber Grid Matrix Flow
+    ctx.fillStyle = '#050811';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.22)';
+    ctx.lineWidth = 1.2;
+
+    const horizonY = height * 0.42;
+    // Perspective grid lines
+    const lineCount = 14;
+    for (let i = 0; i < lineCount; i++) {
+      const lx = (i / (lineCount - 1)) * width * 1.6 - width * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(width / 2, horizonY);
+      ctx.lineTo(lx, height);
+      ctx.stroke();
+    }
+    // Horizontal animated terrain bars
+    for (let j = 0; j < 10; j++) {
+      const prog = (j / 10 + (t * 0.4) % 0.1) % 1;
+      const py = horizonY + Math.pow(prog, 2) * (height - horizonY);
+      ctx.beginPath();
+      ctx.moveTo(0, py);
+      ctx.lineTo(width, py);
+      ctx.strokeStyle = `rgba(129, 140, 248, ${0.1 + prog * 0.4})`;
+      ctx.stroke();
+    }
+  } else if (type === 'gen:synapse') {
+    // Cognitive Synapse & Neural Pulse Network
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(0, 0, width, height);
+
+    const cx = width / 2;
+    const cy = height / 2;
+    for (let r = 0; r < 5; r++) {
+      const radius = 60 + r * 55 + Math.sin(t * 2 + r) * 15;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(168, 85, 247, ${0.35 - r * 0.05})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    for (let p = 0; p < 24; p++) {
+      const angle = (p / 24) * Math.PI * 2 + t * 0.5;
+      const dist = 70 + (p % 4) * 50 + Math.sin(t * 3 + p) * 20;
+      const px = cx + Math.cos(angle) * dist;
+      const py = cy + Math.sin(angle) * dist;
+      ctx.beginPath();
+      ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#38bdf8';
+      ctx.shadowColor = '#818cf8';
+      ctx.shadowBlur = 10;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
   } else {
     // Aurora Gradient Flow (default)
     const g = ctx.createLinearGradient(
@@ -177,9 +235,73 @@ export function renderVideoFrame({
     renderGenerativeVisual(ctx, mediaUrl, width, height, sceneLocalTime);
   } else if (imageCache.has(mediaUrl)) {
     const img = imageCache.get(mediaUrl)!;
-    // Ken Burns smooth scale effect
-    const sceneProgress = Math.min(1, sceneLocalTime / (currentScene.durationSeconds || 5));
-    const zoomScale = 1.0 + sceneProgress * 0.08;
+    
+    // --- Cinematic Camera Motion Smoothing Engine ---
+    // Smooth documentary camera moves: subtle pans, tilts, zooms, and organic handheld micro-drifts
+    const duration = Math.max(1, currentScene.durationSeconds || 5);
+    const rawProgress = Math.min(1, Math.max(0, sceneLocalTime / duration));
+    
+    // Cinematic cubic bezier easing (easeInOutCubic) for organic acceleration & deceleration
+    const easeProgress = rawProgress < 0.5
+      ? 4 * rawProgress * rawProgress * rawProgress
+      : 1 - Math.pow(-2 * rawProgress + 2, 3) / 2;
+
+    // Organic micro-breathing / handheld drift
+    const driftX = Math.sin(sceneLocalTime * 0.8) * 4 + Math.sin(sceneLocalTime * 1.7) * 2;
+    const driftY = Math.cos(sceneLocalTime * 0.7) * 3 + Math.cos(sceneLocalTime * 1.5) * 1.5;
+
+    // Select or auto-assign motion pattern based on scene properties if not specified
+    const motionMode = currentScene.motionType || (
+      currentScene.sceneNumber % 5 === 1 ? 'ken_burns_zoom_in' :
+      currentScene.sceneNumber % 5 === 2 ? 'pan_left' :
+      currentScene.sceneNumber % 5 === 3 ? 'tilt_up' :
+      currentScene.sceneNumber % 5 === 4 ? 'pan_right' :
+      'orbital_drift'
+    );
+
+    // Compute base scale and translate offsets
+    let zoomScale = 1.08; // Base scale headroom to avoid revealing canvas bounds
+    let panX = 0;
+    let panY = 0;
+
+    switch (motionMode) {
+      case 'ken_burns_zoom_in':
+        zoomScale = 1.04 + easeProgress * 0.12; // 1.04x -> 1.16x slow documentary push-in
+        panX = (easeProgress - 0.5) * 25 + driftX;
+        panY = (easeProgress - 0.5) * 15 + driftY;
+        break;
+      case 'ken_burns_zoom_out':
+        zoomScale = 1.16 - easeProgress * 0.11; // 1.16x -> 1.05x cinematic reveal pull-back
+        panX = (0.5 - easeProgress) * 20 + driftX;
+        panY = (0.5 - easeProgress) * 12 + driftY;
+        break;
+      case 'pan_left':
+        zoomScale = 1.12 + Math.sin(easeProgress * Math.PI) * 0.03;
+        panX = 35 - easeProgress * 70 + driftX; // Slow pan from right to left
+        panY = driftY;
+        break;
+      case 'pan_right':
+        zoomScale = 1.12 + Math.sin(easeProgress * Math.PI) * 0.03;
+        panX = -35 + easeProgress * 70 + driftX; // Slow pan from left to right
+        panY = driftY;
+        break;
+      case 'tilt_up':
+        zoomScale = 1.11 + easeProgress * 0.05;
+        panX = driftX;
+        panY = 25 - easeProgress * 50 + driftY; // Gentle pedestal tilt upward
+        break;
+      case 'tilt_down':
+        zoomScale = 1.11 + easeProgress * 0.05;
+        panX = driftX;
+        panY = -25 + easeProgress * 50 + driftY; // Gentle pedestal tilt downward
+        break;
+      case 'orbital_drift':
+      default:
+        zoomScale = 1.07 + Math.sin(easeProgress * Math.PI) * 0.07;
+        panX = Math.sin(easeProgress * Math.PI * 1.5) * 30 + driftX;
+        panY = Math.cos(easeProgress * Math.PI * 1.5) * 20 + driftY;
+        break;
+    }
 
     const imgAspect = img.width / img.height;
     const canvasAspect = width / height;
@@ -198,10 +320,15 @@ export function renderVideoFrame({
     drawW *= zoomScale;
     drawH *= zoomScale;
 
-    const offsetX = (width - drawW) / 2;
-    const offsetY = (height - drawH) / 2;
+    const offsetX = (width - drawW) / 2 + panX;
+    const offsetY = (height - drawH) / 2 + panY;
 
+    ctx.save();
+    // Image smoothing high quality
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+    ctx.restore();
   } else {
     // Fallback gradient while loading
     renderGenerativeVisual(ctx, 'gen:aurora', width, height, sceneLocalTime);
@@ -317,9 +444,16 @@ function renderPresenterOnCanvas({
     preloadImage(character.avatarUrl);
   }
 
+  // Live Audio Volume for authentic lip-sync, blinking, and dynamic equalizer
+  const liveVol = getLiveAudioVolume();
+  const isSpeaking = isCharacterSpeaking() || (sceneLocalTime < currentScene.durationSeconds - 0.4);
+
   // Micro-motion breathing / head movement
   const breath = 1.0 + Math.sin(sceneLocalTime * 2.2) * 0.012;
-  const isSpeaking = sceneLocalTime < currentScene.durationSeconds - 0.4;
+
+  // Natural human blink cycle (lasts ~120ms every 3.4 seconds)
+  const blinkCycle = (sceneLocalTime * 0.29) % 1.0;
+  const isBlinking = blinkCycle > 0.94 && blinkCycle < 0.98;
 
   if (mode === 'split_screen') {
     // Split Screen Layout
@@ -335,6 +469,44 @@ function renderPresenterOnCanvas({
 
     if (imgToDraw) {
       ctx.drawImage(imgToDraw, splitX, splitY, splitW, splitH);
+
+      // Split Screen Lip-Sync
+      if (isSpeaking && liveVol > 0.04) {
+        const mouthX = splitX + splitW * 0.5;
+        const mouthY = splitY + splitH * 0.58;
+        const mW = splitW * 0.08;
+        const mH = Math.min(splitH * 0.06, Math.max(2, liveVol * splitH * 0.08));
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(mouthX, mouthY, mW * 0.5, mH * 0.5, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(40, 16, 22, 0.95)';
+        ctx.fill();
+        if (mH > 3) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.beginPath();
+          ctx.rect(mouthX - mW * 0.25, mouthY - mH * 0.45, mW * 0.5, mH * 0.35);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      // Split Screen Natural Blink
+      if (isBlinking) {
+        const eyeY = splitY + splitH * 0.46;
+        const eyeDist = splitW * 0.08;
+        const eyeW = splitW * 0.05;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(45, 25, 25, 0.9)';
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(splitX + splitW * 0.5 - eyeDist, eyeY, eyeW * 0.5, 0.1 * Math.PI, 0.9 * Math.PI);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(splitX + splitW * 0.5 + eyeDist, eyeY, eyeW * 0.5, 0.1 * Math.PI, 0.9 * Math.PI);
+        ctx.stroke();
+        ctx.restore();
+      }
     } else {
       // Studio backdrop fallback
       const bgGrad = ctx.createLinearGradient(splitX, splitY, splitX + splitW, splitY + splitH);
@@ -393,10 +565,10 @@ function renderPresenterOnCanvas({
     ctx.font = '800 10px "Plus Jakarta Sans", sans-serif';
     ctx.fillText(emotion.toUpperCase(), badgeX + 12, badgeY + 29);
 
-    // Animated equalizing soundbars
+    // Animated equalizing soundbars connected to real audio volume
     if (isSpeaking) {
       for (let b = 0; b < 4; b++) {
-        const barH = 5 + Math.abs(Math.sin(sceneLocalTime * 8 + b * 1.5)) * 14;
+        const barH = 4 + (liveVol * 18) + Math.abs(Math.sin(sceneLocalTime * 12 + b * 1.5)) * 6;
         ctx.fillStyle = theme.rim;
         ctx.fillRect(badgeX + badgeW - 36 + b * 6, badgeY + badgeH / 2 - barH / 2, 3, barH);
       }
@@ -412,7 +584,7 @@ function renderPresenterOnCanvas({
     ctx.save();
     ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
     ctx.shadowColor = theme.glow;
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = 15 + liveVol * 25;
     ctx.roundRect?.(barX, barY, barW, barH, 16);
     ctx.fill();
     ctx.shadowBlur = 0;
@@ -429,6 +601,17 @@ function renderPresenterOnCanvas({
     ctx.clip();
     if (imgToDraw) {
       ctx.drawImage(imgToDraw, aCenterX - avatarR, aCenterY - avatarR, avatarR * 2, avatarR * 2);
+
+      // Micro lip-sync in cinema host avatar
+      if (isSpeaking && liveVol > 0.04) {
+        const mY = aCenterY + avatarR * 0.32;
+        const mW = avatarR * 0.35;
+        const mH = Math.min(avatarR * 0.28, Math.max(1.5, liveVol * avatarR * 0.3));
+        ctx.beginPath();
+        ctx.ellipse(aCenterX, mY, mW * 0.5, mH * 0.5, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(40, 16, 22, 0.95)';
+        ctx.fill();
+      }
     } else {
       ctx.fillStyle = '#1e1b4b';
       ctx.fillRect(aCenterX - avatarR, aCenterY - avatarR, avatarR * 2, avatarR * 2);
@@ -455,7 +638,7 @@ function renderPresenterOnCanvas({
     // Audio sound bars
     if (isSpeaking) {
       for (let b = 0; b < 4; b++) {
-        const barH = 4 + Math.abs(Math.sin(sceneLocalTime * 10 + b * 2)) * 16;
+        const barH = 4 + (liveVol * 20) + Math.abs(Math.sin(sceneLocalTime * 14 + b * 2)) * 6;
         ctx.fillStyle = theme.rim;
         ctx.fillRect(barX + barW - 38 + b * 7, aCenterY - barH / 2, 4, barH);
       }
@@ -484,9 +667,9 @@ function renderPresenterOnCanvas({
     ctx.scale(breath, breath);
     ctx.translate(-centerX, -centerY);
 
-    // Outer Emotion Glow & Border Ring
+    // Outer Emotion Glow & Border Ring (pulses with live audio volume!)
     ctx.shadowColor = theme.glow;
-    ctx.shadowBlur = 20;
+    ctx.shadowBlur = 16 + liveVol * 28;
     ctx.fillStyle = '#0f172a';
     ctx.beginPath();
     ctx.arc(centerX, centerY, pipSize / 2 + 3, 0, Math.PI * 2);
@@ -505,6 +688,49 @@ function renderPresenterOnCanvas({
 
     if (imgToDraw) {
       ctx.drawImage(imgToDraw, pipX, pipY, pipSize, pipSize);
+
+      // Real-time Mouth Lip-Sync Movement synchronized to Sound
+      if (isSpeaking && liveVol > 0.04) {
+        const mouthY = centerY + pipSize * 0.165;
+        const mouthWidth = pipSize * 0.14;
+        const mouthHeight = Math.min(pipSize * 0.11, Math.max(2, liveVol * pipSize * 0.12));
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(centerX, mouthY, mouthWidth * 0.5, mouthHeight * 0.5, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(40, 16, 22, 0.96)';
+        ctx.fill();
+
+        if (mouthHeight > 3.5) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.beginPath();
+          ctx.rect(centerX - mouthWidth * 0.28, mouthY - mouthHeight * 0.45, mouthWidth * 0.56, mouthHeight * 0.35);
+          ctx.fill();
+        }
+
+        ctx.strokeStyle = 'rgba(180, 80, 80, 0.5)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Natural Human Blinking (lasts 120ms every ~3.4s)
+      if (isBlinking) {
+        const eyeY = centerY - pipSize * 0.075;
+        const eyeDist = pipSize * 0.12;
+        const eyeW = pipSize * 0.08;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(45, 25, 25, 0.9)';
+        ctx.lineWidth = 2.4;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(centerX - eyeDist, eyeY, eyeW * 0.5, 0.1 * Math.PI, 0.9 * Math.PI);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(centerX + eyeDist, eyeY, eyeW * 0.5, 0.1 * Math.PI, 0.9 * Math.PI);
+        ctx.stroke();
+        ctx.restore();
+      }
     } else {
       // High-end fallback studio portrait
       const fbGrad = ctx.createRadialGradient(centerX, centerY - 20, 10, centerX, centerY, pipSize / 2);
@@ -545,11 +771,11 @@ function renderPresenterOnCanvas({
     ctx.font = '700 8.5px "Plus Jakarta Sans", sans-serif';
     ctx.fillText(`• ${emotion.toUpperCase()}`, badgeX + badgeW / 2 - (isSpeaking ? 10 : 0), badgeY + 22);
 
-    // Audio Equalizer bars inside badge
+    // Audio Equalizer bars inside badge jumping to real sound volume
     if (isSpeaking) {
       const eqX = badgeX + badgeW - 20;
       for (let b = 0; b < 3; b++) {
-        const barH = 3 + Math.abs(Math.sin(sceneLocalTime * 12 + b * 2)) * 10;
+        const barH = 3 + (liveVol * 14) + Math.abs(Math.sin(sceneLocalTime * 14 + b * 2)) * 4;
         ctx.fillStyle = theme.rim;
         ctx.fillRect(eqX + b * 5, badgeY + badgeH / 2 - barH / 2, 2.5, barH);
       }

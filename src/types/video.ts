@@ -30,6 +30,15 @@ export interface PresenterConfig {
   showSpeakingWave: boolean;
 }
 
+export type CameraMotionType =
+  | 'ken_burns_zoom_in'
+  | 'ken_burns_zoom_out'
+  | 'pan_left'
+  | 'pan_right'
+  | 'tilt_up'
+  | 'tilt_down'
+  | 'orbital_drift';
+
 export interface Scene {
   id: string;
   sceneNumber: number;
@@ -48,6 +57,7 @@ export interface Scene {
   durationSeconds: number;
   factReference?: string;
   emotion?: SceneEmotion;
+  motionType?: CameraMotionType;
 }
 
 export interface VoiceConfig {
