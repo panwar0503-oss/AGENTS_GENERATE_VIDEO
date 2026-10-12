@@ -131,9 +131,14 @@ export const Step3Visuals: React.FC<Step3VisualsProps> = ({
                   />
                 )}
 
-                {/* Scene Number Badge */}
-                <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md bg-slate-950/80 backdrop-blur-sm text-[11px] font-bold text-white border border-slate-800">
-                  Scene {idx + 1}
+                {/* Scene Number & Emotion Badge */}
+                <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                  <div className="px-2 py-0.5 rounded-md bg-slate-950/85 backdrop-blur-sm text-[11px] font-bold text-white border border-slate-800">
+                    Scene {idx + 1}
+                  </div>
+                  <div className="px-2 py-0.5 rounded-md bg-indigo-950/90 backdrop-blur-sm text-[10px] font-bold text-indigo-300 border border-indigo-750 capitalize">
+                    {scene.emotion || 'explaining'}
+                  </div>
                 </div>
 
                 {/* Swap Button on Hover */}
@@ -159,7 +164,7 @@ export const Step3Visuals: React.FC<Step3VisualsProps> = ({
 
                 <div className="pt-1 flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-800/80">
                   <span>Source: {scene.mediaCredit.source}</span>
-                  <span className="text-emerald-400">Royalty-Free Safe</span>
+                  <span className="text-emerald-400 font-medium">Royalty-Free Safe</span>
                 </div>
               </div>
             </div>

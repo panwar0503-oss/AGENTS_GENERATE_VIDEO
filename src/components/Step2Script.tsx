@@ -55,6 +55,16 @@ export const Step2Script: React.FC<Step2ScriptProps> = ({
     });
   };
 
+  const handleUpdateSceneEmotion = (sceneId: string, emotion: Scene['emotion']) => {
+    setProject((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        scenes: prev.scenes.map((s) => (s.id === sceneId ? { ...s, emotion } : s)),
+      };
+    });
+  };
+
   const handleDeleteScene = (sceneId: string) => {
     if (project.scenes.length <= 2) return;
     setProject((prev) => {
@@ -249,6 +259,50 @@ export const Step2Script: React.FC<Step2ScriptProps> = ({
                     </button>
                   )}
                 </div>
+              </div>
+
+              {/* Character & Voice Emotion Matching Selector */}
+              <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+                  Emotion & Delivery:
+                </span>
+                {(
+                  [
+                    { id: 'intrigued', label: 'Intrigued', color: 'amber', hint: 'Suspense & Hook' },
+                    { id: 'explaining', label: 'Explaining', color: 'indigo', hint: 'Clear & Articulate' },
+                    { id: 'shocked', label: 'Shocked', color: 'rose', hint: 'High-Impact Reveal' },
+                    { id: 'thoughtful', label: 'Thoughtful', color: 'emerald', hint: 'Deep Insight' },
+                    { id: 'inspiring', label: 'Inspiring', color: 'yellow', hint: 'Motivational' },
+                  ] as const
+                ).map((emo) => {
+                  const isActive = (scene.emotion || 'explaining') === emo.id;
+                  const activeClass =
+                    emo.color === 'amber'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/60'
+                      : emo.color === 'indigo'
+                      ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/60'
+                      : emo.color === 'rose'
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/60'
+                      : emo.color === 'emerald'
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/60'
+                      : 'bg-yellow-500/20 text-yellow-300 border-yellow-500/60';
+
+                  return (
+                    <button
+                      key={emo.id}
+                      type="button"
+                      onClick={() => handleUpdateSceneEmotion(scene.id, emo.id)}
+                      title={`${emo.label}: ${emo.hint}`}
+                      className={`px-2 py-0.5 rounded-md text-[10.5px] font-semibold border transition-all ${
+                        isActive
+                          ? `${activeClass} shadow-xs`
+                          : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                      }`}
+                    >
+                      {emo.label}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Narration Text Area */}

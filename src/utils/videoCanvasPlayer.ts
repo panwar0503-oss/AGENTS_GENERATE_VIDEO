@@ -1,5 +1,6 @@
 import { VideoProject, Scene, CaptionConfig } from '../types/video';
 import { calculateSceneWordTimings, groupIntoPhrases, TimedPhrase } from './captionGenerator';
+import { PRESENTER_CHARACTERS } from '../data/presenterCharacters';
 
 // Cache loaded images
 const imageCache = new Map<string, HTMLImageElement>();
@@ -235,7 +236,20 @@ export function renderVideoFrame({
     ctx.textAlign = 'left';
   }
 
-  // 4. Word-by-Word Synchronized Animated Captions
+  // 4. Presenter Character Rendering (Real Studio Host with Scene Emotion)
+  if (project.presenterConfig?.enabled) {
+    renderPresenterOnCanvas({
+      ctx,
+      project,
+      currentScene,
+      sceneLocalTime,
+      width,
+      height,
+      isVertical,
+    });
+  }
+
+  // 5. Word-by-Word Synchronized Animated Captions
   renderCaptionsOnCanvas({
     ctx,
     scene: currentScene,
@@ -247,6 +261,301 @@ export function renderVideoFrame({
   });
 
   ctx.restore();
+}
+
+function renderPresenterOnCanvas({
+  ctx,
+  project,
+  currentScene,
+  sceneLocalTime,
+  width,
+  height,
+  isVertical,
+}: {
+  ctx: CanvasRenderingContext2D;
+  project: VideoProject;
+  currentScene: Scene;
+  sceneLocalTime: number;
+  width: number;
+  height: number;
+  isVertical: boolean;
+}) {
+  const character = PRESENTER_CHARACTERS.find(
+    (c) => c.id === project.presenterConfig?.characterId
+  ) || PRESENTER_CHARACTERS[0];
+
+  const emotion = currentScene.emotion || 'explaining';
+  const emotionImgUrl =
+    character.emotionalExpressions?.[emotion] || character.avatarUrl;
+
+  const mode = project.presenterConfig?.mode || 'pip_corner';
+
+  // If cuts_only mode: show fullscreen host cut on Hook (scene 1) or CTA (final scene); else corner PIP
+  const isKeyScene = currentScene.sceneNumber === 1 || currentScene.sceneNumber === project.scenes.length;
+  if (mode === 'cuts_only' && !isKeyScene) {
+    // Show subtle miniature host badge in corner
+  }
+
+  // Emotion color themes
+  const emotionThemeMap: Record<string, { rim: string; glow: string; text: string }> = {
+    intrigued: { rim: '#f59e0b', glow: 'rgba(245, 158, 11, 0.55)', text: '#fbbf24' },
+    explaining: { rim: '#6366f1', glow: 'rgba(99, 102, 241, 0.55)', text: '#818cf8' },
+    shocked: { rim: '#ef4444', glow: 'rgba(239, 68, 68, 0.65)', text: '#f87171' },
+    thoughtful: { rim: '#10b981', glow: 'rgba(16, 185, 129, 0.55)', text: '#34d399' },
+    inspiring: { rim: '#eab308', glow: 'rgba(234, 179, 8, 0.65)', text: '#fde047' },
+  };
+  const theme = emotionThemeMap[emotion] || emotionThemeMap.explaining;
+
+  // Retrieve cached image or fallback to avatar
+  let imgToDraw: HTMLImageElement | null = null;
+  if (imageCache.has(emotionImgUrl)) {
+    imgToDraw = imageCache.get(emotionImgUrl)!;
+  } else if (imageCache.has(character.avatarUrl)) {
+    imgToDraw = imageCache.get(character.avatarUrl)!;
+  } else {
+    preloadImage(emotionImgUrl);
+    preloadImage(character.avatarUrl);
+  }
+
+  // Micro-motion breathing / head movement
+  const breath = 1.0 + Math.sin(sceneLocalTime * 2.2) * 0.012;
+  const isSpeaking = sceneLocalTime < currentScene.durationSeconds - 0.4;
+
+  if (mode === 'split_screen') {
+    // Split Screen Layout
+    const splitW = isVertical ? width : width * 0.46;
+    const splitH = isVertical ? height * 0.46 : height;
+    const splitX = 0;
+    const splitY = isVertical ? height - splitH : 0;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(splitX, splitY, splitW, splitH);
+    ctx.clip();
+
+    if (imgToDraw) {
+      ctx.drawImage(imgToDraw, splitX, splitY, splitW, splitH);
+    } else {
+      // Studio backdrop fallback
+      const bgGrad = ctx.createLinearGradient(splitX, splitY, splitX + splitW, splitY + splitH);
+      bgGrad.addColorStop(0, '#0f172a');
+      bgGrad.addColorStop(1, '#1e1b4b');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(splitX, splitY, splitW, splitH);
+
+      // Studio host silhouette / monogram
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = '800 36px "Plus Jakarta Sans", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(character.name.charAt(0), splitX + splitW / 2, splitY + splitH / 2);
+    }
+
+    // Emotion glow vignette
+    const vigGrad = ctx.createLinearGradient(splitX, splitY + splitH - 80, splitX, splitY + splitH);
+    vigGrad.addColorStop(0, 'rgba(15, 23, 42, 0)');
+    vigGrad.addColorStop(1, 'rgba(15, 23, 42, 0.95)');
+    ctx.fillStyle = vigGrad;
+    ctx.fillRect(splitX, splitY + splitH - 80, splitW, 80);
+
+    // Separator neon line
+    ctx.strokeStyle = theme.rim;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    if (isVertical) {
+      ctx.moveTo(0, splitY);
+      ctx.lineTo(width, splitY);
+    } else {
+      ctx.moveTo(splitW, 0);
+      ctx.lineTo(splitW, height);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    // Host Name Badge & Sound Bars
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    const badgeW = Math.min(splitW - 32, 220);
+    const badgeH = 34;
+    const badgeX = splitX + 16;
+    const badgeY = splitY + splitH - badgeH - 14;
+
+    ctx.roundRect?.(badgeX, badgeY, badgeW, badgeH, 8);
+    ctx.fill();
+    ctx.strokeStyle = theme.rim;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = '700 13px "Plus Jakarta Sans", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(character.name, badgeX + 12, badgeY + 18);
+
+    ctx.fillStyle = theme.text;
+    ctx.font = '800 10px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText(emotion.toUpperCase(), badgeX + 12, badgeY + 29);
+
+    // Animated equalizing soundbars
+    if (isSpeaking) {
+      for (let b = 0; b < 4; b++) {
+        const barH = 5 + Math.abs(Math.sin(sceneLocalTime * 8 + b * 1.5)) * 14;
+        ctx.fillStyle = theme.rim;
+        ctx.fillRect(badgeX + badgeW - 36 + b * 6, badgeY + badgeH / 2 - barH / 2, 3, barH);
+      }
+    }
+  } else if (mode === 'cinema_host') {
+    // Cinema Host Lower Third Banner
+    const barW = isVertical ? width * 0.9 : width * 0.55;
+    const barH = 58;
+    const barX = (width - barW) / 2;
+    const barY = height - (isVertical ? 150 : 80);
+    const avatarR = 24;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+    ctx.shadowColor = theme.glow;
+    ctx.shadowBlur = 18;
+    ctx.roundRect?.(barX, barY, barW, barH, 16);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = theme.rim;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Round avatar
+    const aCenterX = barX + avatarR + 10;
+    const aCenterY = barY + barH / 2;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(aCenterX, aCenterY, avatarR, 0, Math.PI * 2);
+    ctx.clip();
+    if (imgToDraw) {
+      ctx.drawImage(imgToDraw, aCenterX - avatarR, aCenterY - avatarR, avatarR * 2, avatarR * 2);
+    } else {
+      ctx.fillStyle = '#1e1b4b';
+      ctx.fillRect(aCenterX - avatarR, aCenterY - avatarR, avatarR * 2, avatarR * 2);
+    }
+    ctx.restore();
+
+    // Outer rim ring
+    ctx.beginPath();
+    ctx.arc(aCenterX, aCenterY, avatarR, 0, Math.PI * 2);
+    ctx.strokeStyle = theme.rim;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Host Info
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 14px "Plus Jakarta Sans", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${character.name}`, aCenterX + avatarR + 12, aCenterY - 4);
+
+    ctx.fillStyle = theme.text;
+    ctx.font = '700 11px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText(`${character.title} · ${emotion.toUpperCase()}`, aCenterX + avatarR + 12, aCenterY + 14);
+
+    // Audio sound bars
+    if (isSpeaking) {
+      for (let b = 0; b < 4; b++) {
+        const barH = 4 + Math.abs(Math.sin(sceneLocalTime * 10 + b * 2)) * 16;
+        ctx.fillStyle = theme.rim;
+        ctx.fillRect(barX + barW - 38 + b * 7, aCenterY - barH / 2, 4, barH);
+      }
+    }
+    ctx.restore();
+  } else {
+    // PIP Corner Circle (Default & Most Versatile)
+    const pipSize = isVertical ? width * 0.34 : height * 0.36;
+    const margin = 20;
+
+    let pipX = width - pipSize - margin;
+    let pipY = height - pipSize - (isVertical ? 175 : 80);
+
+    if (project.presenterConfig?.position === 'bottom_left') {
+      pipX = margin;
+    } else if (project.presenterConfig?.position === 'top_right') {
+      pipY = margin + 45;
+    }
+
+    ctx.save();
+
+    const centerX = pipX + pipSize / 2;
+    const centerY = pipY + pipSize / 2;
+
+    ctx.translate(centerX, centerY);
+    ctx.scale(breath, breath);
+    ctx.translate(-centerX, -centerY);
+
+    // Outer Emotion Glow & Border Ring
+    ctx.shadowColor = theme.glow;
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, pipSize / 2 + 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Outer rim stroke with emotion color
+    ctx.strokeStyle = theme.rim;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Clip image to circular portrait
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, pipSize / 2, 0, Math.PI * 2);
+    ctx.clip();
+
+    if (imgToDraw) {
+      ctx.drawImage(imgToDraw, pipX, pipY, pipSize, pipSize);
+    } else {
+      // High-end fallback studio portrait
+      const fbGrad = ctx.createRadialGradient(centerX, centerY - 20, 10, centerX, centerY, pipSize / 2);
+      fbGrad.addColorStop(0, '#312e81');
+      fbGrad.addColorStop(1, '#090d16');
+      ctx.fillStyle = fbGrad;
+      ctx.fillRect(pipX, pipY, pipSize, pipSize);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `800 ${Math.round(pipSize * 0.32)}px "Plus Jakarta Sans", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(character.name.charAt(0), centerX, centerY - 6);
+    }
+
+    ctx.restore();
+
+    // Broadcaster Badge & Soundbars
+    ctx.save();
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+    const badgeW = pipSize;
+    const badgeH = 26;
+    const badgeX = pipX;
+    const badgeY = pipY + pipSize - 14;
+
+    ctx.roundRect?.(badgeX, badgeY, badgeW, badgeH, 8);
+    ctx.fill();
+    ctx.strokeStyle = theme.rim;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 10.5px "Plus Jakarta Sans", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${character.name.toUpperCase()}`, badgeX + badgeW / 2 - (isSpeaking ? 10 : 0), badgeY + 12);
+
+    ctx.fillStyle = theme.text;
+    ctx.font = '700 8.5px "Plus Jakarta Sans", sans-serif';
+    ctx.fillText(`• ${emotion.toUpperCase()}`, badgeX + badgeW / 2 - (isSpeaking ? 10 : 0), badgeY + 22);
+
+    // Audio Equalizer bars inside badge
+    if (isSpeaking) {
+      const eqX = badgeX + badgeW - 20;
+      for (let b = 0; b < 3; b++) {
+        const barH = 3 + Math.abs(Math.sin(sceneLocalTime * 12 + b * 2)) * 10;
+        ctx.fillStyle = theme.rim;
+        ctx.fillRect(eqX + b * 5, badgeY + badgeH / 2 - barH / 2, 2.5, barH);
+      }
+    }
+    ctx.restore();
+  }
 }
 
 function renderCaptionsOnCanvas({

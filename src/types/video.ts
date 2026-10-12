@@ -3,6 +3,33 @@ export type VideoTone = 'educational' | 'motivational' | 'storytelling' | 'news-
 export type TargetPlatform = 'YouTube Shorts' | 'YouTube long-form' | 'Instagram Reels' | 'TikTok' | 'Facebook';
 export type AspectRatio = '9:16' | '16:9';
 
+export type SceneEmotion = 'intrigued' | 'explaining' | 'shocked' | 'thoughtful' | 'inspiring';
+
+export interface PresenterCharacter {
+  id: string;
+  name: string;
+  title: string;
+  role: string;
+  voiceMatch: 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
+  avatarUrl: string;
+  emotionalExpressions: {
+    intrigued: string;
+    explaining: string;
+    shocked: string;
+    thoughtful: string;
+    inspiring: string;
+  };
+  licenseNote: string;
+}
+
+export interface PresenterConfig {
+  enabled: boolean;
+  characterId: string;
+  mode: 'pip_corner' | 'split_screen' | 'cuts_only' | 'cinema_host';
+  position: 'bottom_right' | 'bottom_left' | 'top_right';
+  showSpeakingWave: boolean;
+}
+
 export interface Scene {
   id: string;
   sceneNumber: number;
@@ -20,6 +47,7 @@ export interface Scene {
   captionKeywords: string[];
   durationSeconds: number;
   factReference?: string;
+  emotion?: SceneEmotion;
 }
 
 export interface VoiceConfig {
@@ -109,6 +137,7 @@ export interface VideoProject {
   voiceConfig: VoiceConfig;
   musicConfig: MusicConfig;
   captionConfig: CaptionConfig;
+  presenterConfig: PresenterConfig;
   personalTouch: PersonalTouch;
   factCheckNotes: string[];
   sources: string[];

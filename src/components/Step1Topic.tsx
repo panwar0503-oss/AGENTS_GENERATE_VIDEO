@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Sparkles, Clock, Globe, Mic, AlertTriangle, ArrowRight, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Sparkles, Clock, Globe, Mic, AlertTriangle, ArrowRight, ShieldCheck, CheckCircle2, User } from 'lucide-react';
 import { VideoDuration, VideoTone, TargetPlatform, AspectRatio } from '../types/video';
 import { TRENDING_TOPICS } from '../data/trendingTopics';
+import { PRESENTER_CHARACTERS } from '../data/presenterCharacters';
 
 interface Step1TopicProps {
   topic: string;
@@ -266,6 +267,41 @@ export const Step1Topic: React.FC<Step1TopicProps> = ({
               );
             })}
           </div>
+
+          {/* Matched Real Presenter Host & Voice Persona */}
+          {(() => {
+            const defaultHostMap: Record<string, string> = {
+              educational: 'char_marcus',
+              motivational: 'char_jordan',
+              storytelling: 'char_maya',
+              'news-style': 'char_sophia',
+            };
+            const charId = defaultHostMap[tone] || 'char_marcus';
+            const host = PRESENTER_CHARACTERS.find((c) => c.id === charId) || PRESENTER_CHARACTERS[0];
+            return (
+              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 flex items-center gap-3 mt-1">
+                <div className="w-9 h-9 rounded-full overflow-hidden border border-slate-700 shrink-0 bg-slate-900">
+                  <img
+                    src={host.avatarUrl}
+                    alt={host.name}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="space-y-0.5 flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-white truncate">{host.name}</span>
+                    <span className="text-[9.5px] text-emerald-400 font-semibold px-1.5 py-0.2 rounded bg-emerald-950/80 border border-emerald-800/40">
+                      Real Host
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 truncate">
+                    Matched Voice: <strong className="text-indigo-300">{host.voiceMatch}</strong> · {host.role}
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Language */}

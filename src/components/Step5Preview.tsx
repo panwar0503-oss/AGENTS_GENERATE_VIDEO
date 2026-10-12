@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { VideoProject, Scene } from '../types/video';
 import { renderVideoFrame, preloadImage } from '../utils/videoCanvasPlayer';
-import { synthesizeVoice, startProceduralMusic } from '../utils/audioSynthesizer';
+import { synthesizeVoice, startProceduralMusic, preloadProjectAudio } from '../utils/audioSynthesizer';
+import { PRESENTER_CHARACTERS } from '../data/presenterCharacters';
 import {
   Play,
   Pause,
@@ -14,7 +15,9 @@ import {
   Sparkles,
   ShieldCheck,
   CheckCircle,
-  Sliders
+  Sliders,
+  User,
+  Mic
 } from 'lucide-react';
 
 interface Step5PreviewProps {
@@ -44,13 +47,31 @@ export const Step5Preview: React.FC<Step5PreviewProps> = ({
   const voiceStopperRef = useRef<(() => void) | null>(null);
 
   // Preload scenes media
+  const lastSpokenSceneRef = useRef<number | null>(null);
+  const [isAuditioningVoice, setIsAuditioningVoice] = useState(false);
+
+  // Preload scenes media, presenter emotional portraits, and voiceover audio
   useEffect(() => {
     project.scenes.forEach((s) => {
       if (!s.mediaUrl.startsWith('gen:')) {
         preloadImage(s.mediaUrl);
       }
     });
-  }, [project.scenes]);
+
+    if (project.presenterConfig?.enabled) {
+      const char = PRESENTER_CHARACTERS.find(
+        (c) => c.id === project.presenterConfig.characterId
+      ) || PRESENTER_CHARACTERS[0];
+      preloadImage(char.avatarUrl);
+      Object.values(char.emotionalExpressions).forEach((url) => preloadImage(url));
+    }
+
+    preloadProjectAudio(
+      project.scenes,
+      project.voiceConfig.voiceName,
+      project.voiceConfig.speed || 1.0
+    );
+  }, [project]);
 
   // Frame render loop on canvas
   useEffect(() => {
@@ -92,7 +113,7 @@ export const Step5Preview: React.FC<Step5PreviewProps> = ({
     });
   }, [currentTime, project, totalDuration]);
 
-  // Playback timer & audio orchestration
+  // Playback timer, background music & synchronized scene voiceover orchestration
   useEffect(() => {
     let animId: number;
     let lastTimestamp: number | null = null;
@@ -102,8 +123,32 @@ export const Step5Preview: React.FC<Step5PreviewProps> = ({
       if (!isMuted && !musicRef.current) {
         musicRef.current = startProceduralMusic(
           project.musicConfig.trackId,
-          project.musicConfig.volume
+          project.musicConfig.volume || 0.2
         );
+      }
+
+      // Synchronize Voiceover with Scene Entrance
+      if (!isMuted && activeSceneIndex !== lastSpokenSceneRef.current) {
+        lastSpokenSceneRef.current = activeSceneIndex;
+        if (voiceStopperRef.current) {
+          voiceStopperRef.current();
+          voiceStopperRef.current = null;
+        }
+
+        const activeScene = project.scenes[activeSceneIndex];
+        if (activeScene) {
+          synthesizeVoice(
+            activeScene.narrationText,
+            project.voiceConfig.voiceName,
+            project.voiceConfig.speed || 1.0,
+            activeScene.emotion || 'explaining'
+          ).then((controller) => {
+            if (isPlaying) {
+              voiceStopperRef.current = controller.stop;
+              controller.play();
+            }
+          });
+        }
       }
 
       const loop = (timestamp: number) => {
@@ -115,9 +160,14 @@ export const Step5Preview: React.FC<Step5PreviewProps> = ({
           const next = prev + delta;
           if (next >= totalDuration) {
             setIsPlaying(false);
+            lastSpokenSceneRef.current = null;
             if (musicRef.current) {
               musicRef.current.stop();
               musicRef.current = null;
+            }
+            if (voiceStopperRef.current) {
+              voiceStopperRef.current();
+              voiceStopperRef.current = null;
             }
             return 0;
           }
@@ -129,6 +179,7 @@ export const Step5Preview: React.FC<Step5PreviewProps> = ({
 
       animId = requestAnimationFrame(loop);
     } else {
+      lastSpokenSceneRef.current = null;
       if (musicRef.current) {
         musicRef.current.stop();
         musicRef.current = null;
@@ -149,7 +200,7 @@ export const Step5Preview: React.FC<Step5PreviewProps> = ({
         voiceStopperRef.current();
       }
     };
-  }, [isPlaying, isMuted, totalDuration, project.musicConfig]);
+  }, [isPlaying, isMuted, activeSceneIndex, totalDuration, project.musicConfig, project.voiceConfig, project.scenes]);
 
   const handleTogglePlay = () => {
     setIsPlaying(!isPlaying);
@@ -346,7 +397,61 @@ export const Step5Preview: React.FC<Step5PreviewProps> = ({
               "{project.scenes[activeSceneIndex]?.narrationText}"
             </p>
 
-            <div className="text-xs space-y-1 text-slate-400">
+            {/* Active Scene Voice Audition & Presenter Emotion Details */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
+              <div className="flex items-center gap-2 text-xs">
+                {project.presenterConfig?.enabled && (
+                  <div className="flex items-center gap-1.5 text-indigo-300 font-semibold">
+                    <User className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>
+                      Host Emotion:{' '}
+                      <strong className="text-white capitalize">
+                        {project.scenes[activeSceneIndex]?.emotion || 'explaining'}
+                      </strong>
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  if (isAuditioningVoice) {
+                    if (voiceStopperRef.current) {
+                      voiceStopperRef.current();
+                      voiceStopperRef.current = null;
+                    }
+                    setIsAuditioningVoice(false);
+                    return;
+                  }
+
+                  const scene = project.scenes[activeSceneIndex];
+                  if (!scene) return;
+
+                  setIsAuditioningVoice(true);
+                  const controller = await synthesizeVoice(
+                    scene.narrationText,
+                    project.voiceConfig.voiceName,
+                    project.voiceConfig.speed,
+                    scene.emotion || 'explaining'
+                  );
+                  voiceStopperRef.current = controller.stop;
+                  await controller.play();
+                  setIsAuditioningVoice(false);
+                  voiceStopperRef.current = null;
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0 ${
+                  isAuditioningVoice
+                    ? 'bg-rose-600 text-white'
+                    : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                }`}
+              >
+                <Mic className="w-3.5 h-3.5" />
+                <span>{isAuditioningVoice ? 'Stop Audition' : 'Audition Scene Voice'}</span>
+              </button>
+            </div>
+
+            <div className="text-xs space-y-1 text-slate-400 pt-1">
               <div>
                 <strong className="text-slate-300">Visual Cue:</strong>{' '}
                 {project.scenes[activeSceneIndex]?.visualPrompt}

@@ -109,6 +109,16 @@ export const MonetizationSafetyModal: React.FC<MonetizationSafetyModalProps> = (
                   Both YouTube and Instagram require creators to label realistic synthetic voiceovers and generative media as "Altered or Synthetic Content". TopicToVideo includes this flag automatically in your export metadata.
                 </p>
               </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                <div className="flex items-center gap-2 font-bold text-slate-200">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>5. Model-Released Real Presenters & Zero Likeness Claims</span>
+                </div>
+                <p className="text-slate-400 leading-relaxed pl-6">
+                  Host characters are real, photorealistic studio presenters with verified commercial model releases. No unauthorized celebrity likenesses or distorted AI avatars, ensuring zero copyright or right-of-publicity claims on any platform.
+                </p>
+              </div>
             </div>
           </div>
         </div>
